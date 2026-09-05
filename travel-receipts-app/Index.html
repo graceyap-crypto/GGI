@@ -86,6 +86,7 @@
       .row { display: flex; gap: 12px; }
       .row > div { flex: 1; }
       .files-list { font-size: 12px; color: var(--muted); margin-top: 5px; }
+      .files-list-error { color: #b91c1c; font-weight: 600; }
 
       .trip-section {
         border: 1px solid var(--border);
@@ -293,6 +294,43 @@
     <script>
       var itemsEl = document.getElementById('items');
       var itemTemplate = document.getElementById('itemTemplate');
+      var MAX_FILE_SIZE_BYTES = <?= maxFileSizeBytes ?>;
+      var MAX_FILE_SIZE_MB = Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024));
+
+      function formatMB(bytes) {
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      }
+
+      // Returns the files in fileList that exceed the size limit, so an
+      // oversized file can be rejected instantly in the browser rather
+      // than attempted: a file this large can take a long time to
+      // upload only to be killed by the network layer partway through,
+      // which shows up as a generic network error rather than a clear
+      // "file too large" message.
+      function oversizedFiles(fileList) {
+        return Array.prototype.filter.call(fileList, function (f) {
+          return f.size > MAX_FILE_SIZE_BYTES;
+        });
+      }
+
+      function updateFilesList(fileList, listEl) {
+        if (!fileList.length) {
+          listEl.textContent = '';
+          listEl.classList.remove('files-list-error');
+          return;
+        }
+        var oversized = oversizedFiles(fileList);
+        if (oversized.length) {
+          listEl.textContent = oversized.map(function (f) {
+            return f.name + ' (' + formatMB(f.size) + ')';
+          }).join(', ') + ' exceeds the ' + MAX_FILE_SIZE_MB + ' MB limit - please use a smaller file.';
+          listEl.classList.add('files-list-error');
+        } else {
+          var names = Array.prototype.map.call(fileList, function (f) { return f.name; });
+          listEl.textContent = 'Attached: ' + names.join(', ');
+          listEl.classList.remove('files-list-error');
+        }
+      }
 
       function renumberItems() {
         itemsEl.querySelectorAll('.item').forEach(function (el, i) {
@@ -330,12 +368,10 @@
         });
 
         itemEl.querySelector('.receiptFiles').addEventListener('change', function (e) {
-          var names = Array.prototype.map.call(e.target.files, function (f) { return f.name; });
-          itemEl.querySelector('.receiptFilesList').textContent = names.length ? ('Attached: ' + names.join(', ')) : '';
+          updateFilesList(e.target.files, itemEl.querySelector('.receiptFilesList'));
         });
         itemEl.querySelector('.ccFiles').addEventListener('change', function (e) {
-          var names = Array.prototype.map.call(e.target.files, function (f) { return f.name; });
-          itemEl.querySelector('.ccFilesList').textContent = names.length ? ('Attached: ' + names.join(', ')) : '';
+          updateFilesList(e.target.files, itemEl.querySelector('.ccFilesList'));
         });
 
         itemsEl.appendChild(itemEl);
@@ -398,8 +434,17 @@
 
         var itemEls = Array.prototype.slice.call(itemsEl.querySelectorAll('.item'));
         for (var i = 0; i < itemEls.length; i++) {
-          if (!itemEls[i].querySelector('.receiptFiles').files.length) {
+          var receiptFilesI = itemEls[i].querySelector('.receiptFiles').files;
+          var ccFilesI = itemEls[i].querySelector('.ccFiles').files;
+          if (!receiptFilesI.length) {
             document.getElementById('errorText').textContent = 'Expense ' + (i + 1) + ': please attach at least one receipt.';
+            errorEl.style.display = 'flex';
+            return;
+          }
+          var oversized = oversizedFiles(receiptFilesI).concat(oversizedFiles(ccFilesI));
+          if (oversized.length) {
+            document.getElementById('errorText').textContent = 'Expense ' + (i + 1) + ': "' + oversized[0].name +
+              '" (' + formatMB(oversized[0].size) + ') exceeds the ' + MAX_FILE_SIZE_MB + ' MB limit. Please use a smaller file.';
             errorEl.style.display = 'flex';
             return;
           }
