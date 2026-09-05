@@ -365,6 +365,19 @@
         }));
       }
 
+      // Wraps google.script.run in a Promise so each server call can be
+      // awaited one at a time, instead of bundling every item's files
+      // into a single request (a bundle large enough can be rejected by
+      // a network intermediary before it even reaches Google).
+      function callServer(fnName, args) {
+        return new Promise(function (resolve, reject) {
+          google.script.run
+            .withSuccessHandler(resolve)
+            .withFailureHandler(function (err) { reject(err.message || String(err)); })
+            [fnName].apply(null, args);
+        });
+      }
+
       document.getElementById('tripForm').addEventListener('submit', function (e) {
         e.preventDefault();
         var errorEl = document.getElementById('error');
@@ -385,50 +398,71 @@
         submitBtn.disabled = true;
         submitBtn.textContent = 'Submitting...';
 
-        Promise.all(itemEls.map(function (itemEl) {
-          return Promise.all([
-            filesToPayload(itemEl.querySelector('.receiptFiles').files),
-            filesToPayload(itemEl.querySelector('.ccFiles').files)
-          ]).then(function (results) {
-            return {
-              claimType: itemEl.querySelector('.claimType').value,
-              description: itemEl.querySelector('.description').value,
-              amount: itemEl.querySelector('.amount').value,
-              receiptFiles: results[0],
-              ccFiles: results[1]
-            };
-          });
-        })).then(function (items) {
-          var trip = {
-            employeeName: document.getElementById('employeeName').value,
-            employeeEmail: document.getElementById('employeeEmail').value,
-            destination: document.getElementById('destination').value,
-            startDate: document.getElementById('startDate').value,
-            endDate: document.getElementById('endDate').value,
-            items: items
-          };
+        var header = {
+          employeeName: document.getElementById('employeeName').value,
+          employeeEmail: document.getElementById('employeeEmail').value,
+          destination: document.getElementById('destination').value,
+          startDate: document.getElementById('startDate').value,
+          endDate: document.getElementById('endDate').value,
+          itemCount: itemEls.length
+        };
 
-          google.script.run
-            .withSuccessHandler(function (res) {
-              document.getElementById('resultText').innerHTML = '<b>Trip submitted &mdash; ' + res.tripCode + '</b>' +
-                res.itemCount + ' item(s), total SGD ' + res.total.toFixed(2) + '.<br>' +
-                'Receipts saved to <a href="' + res.folderUrl + '" target="_blank">Drive folder</a>.';
-              resultEl.style.display = 'flex';
-              document.getElementById('tripForm').reset();
-              itemsEl.innerHTML = '';
-              addItem();
-              updateTotal();
-              submitBtn.disabled = false;
-              submitBtn.textContent = 'Submit trip receipts';
-            })
-            .withFailureHandler(function (err) {
-              document.getElementById('errorText').textContent = err.message || String(err);
-              errorEl.style.display = 'flex';
-              submitBtn.disabled = false;
-              submitBtn.textContent = 'Submit trip receipts';
-            })
-            .submitTrip(trip);
-        });
+        function fail(message) {
+          document.getElementById('errorText').textContent = message;
+          errorEl.style.display = 'flex';
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit trip receipts';
+        }
+
+        callServer('startTrip', [header]).then(function (start) {
+          var total = 0;
+          var chain = Promise.resolve();
+
+          itemEls.forEach(function (itemEl, index) {
+            chain = chain.then(function () {
+              submitBtn.textContent = 'Uploading item ' + (index + 1) + ' of ' + itemEls.length + '...';
+              return Promise.all([
+                filesToPayload(itemEl.querySelector('.receiptFiles').files),
+                filesToPayload(itemEl.querySelector('.ccFiles').files)
+              ]).then(function (results) {
+                var item = {
+                  claimType: itemEl.querySelector('.claimType').value,
+                  description: itemEl.querySelector('.description').value,
+                  amount: itemEl.querySelector('.amount').value,
+                  receiptFiles: results[0],
+                  ccFiles: results[1]
+                };
+                return callServer('submitTripItem', [{
+                  tripCode: start.tripCode,
+                  tripFolderId: start.tripFolderId,
+                  header: header,
+                  index: index,
+                  item: item
+                }]);
+              }).then(function (res) {
+                total += res.amount;
+              }).catch(function (err) {
+                throw (index === 0 ? '' : 'Items 1-' + index + ' were already saved under trip ' + start.tripCode + '. ') +
+                  'Item ' + (index + 1) + ' failed: ' + err;
+              });
+            });
+          });
+
+          return chain.then(function () {
+            return callServer('finalizeTrip', [start.tripCode, header, itemEls.length, total, start.tripFolderUrl]);
+          });
+        }).then(function (res) {
+          document.getElementById('resultText').innerHTML = '<b>Trip submitted &mdash; ' + res.tripCode + '</b>' +
+            res.itemCount + ' item(s), total SGD ' + res.total.toFixed(2) + '.<br>' +
+            'Receipts saved to <a href="' + res.folderUrl + '" target="_blank">Drive folder</a>.';
+          resultEl.style.display = 'flex';
+          document.getElementById('tripForm').reset();
+          itemsEl.innerHTML = '';
+          addItem();
+          updateTotal();
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Submit trip receipts';
+        }).catch(fail);
       });
     </script>
   </body>

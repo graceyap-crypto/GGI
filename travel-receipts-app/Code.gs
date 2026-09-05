@@ -2,10 +2,16 @@
  * GGI Travel Receipt Log App
  * Serves a per-trip form (destination + date range) with one or more
  * expense line items (claim type, description, SGD amount, receipt,
- * optional credit card statement). On submit: validates input, files
- * every attachment under a per-employee/per-trip Drive folder, appends
- * one auditable row per line item to the Travel Receipts Log sheet,
- * and emails the approver a trip summary.
+ * optional credit card statement).
+ *
+ * Submission is split into one request per expense item (startTrip,
+ * then one submitTripItem per item, then finalizeTrip) rather than one
+ * big request carrying every item's files at once. A single request
+ * that bundles several receipts/statements can be large enough that a
+ * network intermediary (corporate proxy/firewall) rejects it outright
+ * before it reaches Google, which shows up in the browser as a plain
+ * network error rather than an app error. Keeping each request to one
+ * item's files avoids that regardless of how many items a trip has.
  */
 
 function doGet() {
@@ -17,14 +23,13 @@ function doGet() {
 }
 
 /**
- * Entry point called from the form via google.script.run.
- * @param {Object} trip - { employeeName, employeeEmail, destination,
- *   startDate, endDate, items: [{ claimType, description, amount,
- *   receiptFiles: [{name, mimeType, base64}],
- *   ccFiles: [{name, mimeType, base64}] }] }
+ * Step 1: validates the trip header, generates the trip code, and
+ * creates the employee/trip folders. Called once per submission.
+ * @param {Object} header - { employeeName, employeeEmail, destination,
+ *   startDate, endDate, itemCount }
  */
-function submitTrip(trip) {
-  validateTrip_(trip);
+function startTrip(header) {
+  validateTripHeader_(header);
 
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -35,77 +40,96 @@ function submitTrip(trip) {
     lock.releaseLock();
   }
 
-  var employeeFolder = getOrCreateEmployeeFolder_(trip.employeeName, trip.employeeEmail);
+  var employeeFolder = getOrCreateEmployeeFolder_(header.employeeName, header.employeeEmail);
   var tripFolder = employeeFolder.createFolder(
-    tripCode + ' - ' + trip.destination + ' (' + trip.startDate + ' to ' + trip.endDate + ')'
+    tripCode + ' - ' + header.destination + ' (' + header.startDate + ' to ' + header.endDate + ')'
   );
 
-  var total = 0;
-  trip.items.forEach(function (item, i) {
-    total += Number(item.amount);
-    var itemFolder = tripFolder.createFolder(
-      Utilities.formatString('%02d', i + 1) + ' - ' + item.claimType
-    );
-    var receiptNames = saveFiles_(itemFolder, item.receiptFiles);
-    var ccNames = [];
-    var ccFolderUrl = '';
-    if (item.ccFiles && item.ccFiles.length > 0) {
-      var ccFolder = itemFolder.createFolder('Credit Card Statement');
-      ccNames = saveFiles_(ccFolder, item.ccFiles);
-      ccFolderUrl = ccFolder.getUrl();
-    }
+  return { tripCode: tripCode, tripFolderId: tripFolder.getId(), tripFolderUrl: tripFolder.getUrl() };
+}
 
-    appendLogRow_({
-      tripCode: tripCode,
-      employeeName: trip.employeeName,
-      employeeEmail: trip.employeeEmail,
-      destination: trip.destination,
-      startDate: trip.startDate,
-      endDate: trip.endDate,
-      claimType: item.claimType,
-      description: item.description,
-      amount: Number(item.amount),
-      receiptUrl: itemFolder.getUrl(),
-      receiptNames: receiptNames.join('; '),
-      ccUrl: ccFolderUrl,
-      ccNames: ccNames.join('; ')
-    });
+/**
+ * Step 2: called once per expense item, each in its own request so no
+ * single request carries more than one item's worth of files.
+ * @param {Object} args - { tripCode, tripFolderId, header, index, item }
+ *   item: { claimType, description, amount,
+ *           receiptFiles: [{name, mimeType, base64}],
+ *           ccFiles: [{name, mimeType, base64}] }
+ */
+function submitTripItem(args) {
+  validateItem_(args.item, args.index);
+
+  var tripFolder = DriveApp.getFolderById(args.tripFolderId);
+  var itemFolder = tripFolder.createFolder(
+    Utilities.formatString('%02d', args.index + 1) + ' - ' + args.item.claimType
+  );
+  var receiptNames = saveFiles_(itemFolder, args.item.receiptFiles);
+  var ccNames = [];
+  var ccFolderUrl = '';
+  if (args.item.ccFiles && args.item.ccFiles.length > 0) {
+    var ccFolder = itemFolder.createFolder('Credit Card Statement');
+    ccNames = saveFiles_(ccFolder, args.item.ccFiles);
+    ccFolderUrl = ccFolder.getUrl();
+  }
+
+  appendLogRow_({
+    tripCode: args.tripCode,
+    employeeName: args.header.employeeName,
+    employeeEmail: args.header.employeeEmail,
+    destination: args.header.destination,
+    startDate: args.header.startDate,
+    endDate: args.header.endDate,
+    claimType: args.item.claimType,
+    description: args.item.description,
+    amount: Number(args.item.amount),
+    receiptUrl: itemFolder.getUrl(),
+    receiptNames: receiptNames.join('; '),
+    ccUrl: ccFolderUrl,
+    ccNames: ccNames.join('; ')
   });
 
-  notifyApprovers_(tripCode, trip, total, tripFolder.getUrl());
+  return { amount: Number(args.item.amount) };
+}
 
+/**
+ * Step 3: called once after every item has been submitted successfully.
+ * Sends the approver notification with the trip-level summary.
+ */
+function finalizeTrip(tripCode, header, itemCount, total, tripFolderUrl) {
+  notifyApprovers_(tripCode, header, itemCount, total, tripFolderUrl);
   return {
     tripCode: tripCode,
-    itemCount: trip.items.length,
+    itemCount: itemCount,
     total: Math.round(total * 100) / 100,
-    folderUrl: tripFolder.getUrl()
+    folderUrl: tripFolderUrl
   };
 }
 
-function validateTrip_(trip) {
-  if (!trip) throw new Error('Missing trip data.');
-  if (!trip.employeeName || !trip.employeeName.trim()) throw new Error('Employee name is required.');
-  if (!trip.employeeEmail || !/^\S+@\S+\.\S+$/.test(trip.employeeEmail)) throw new Error('A valid employee email is required.');
-  if (!trip.destination || !trip.destination.trim()) throw new Error('Destination is required.');
-  if (!trip.startDate || !trip.endDate) throw new Error('Both a start and end date are required.');
-  if (new Date(trip.startDate) > new Date(trip.endDate)) throw new Error('Trip start date must be on or before the end date.');
-  if (!trip.items || trip.items.length === 0) throw new Error('Add at least one expense item.');
-  if (trip.items.length > CONFIG.MAX_ITEMS) throw new Error('No more than ' + CONFIG.MAX_ITEMS + ' expense items per trip.');
+function validateTripHeader_(header) {
+  if (!header) throw new Error('Missing trip data.');
+  if (!header.employeeName || !header.employeeName.trim()) throw new Error('Employee name is required.');
+  if (!header.employeeEmail || !/^\S+@\S+\.\S+$/.test(header.employeeEmail)) throw new Error('A valid employee email is required.');
+  if (!header.destination || !header.destination.trim()) throw new Error('Destination is required.');
+  if (!header.startDate || !header.endDate) throw new Error('Both a start and end date are required.');
+  if (new Date(header.startDate) > new Date(header.endDate)) throw new Error('Trip start date must be on or before the end date.');
+  if (!header.itemCount || header.itemCount < 1) throw new Error('Add at least one expense item.');
+  if (header.itemCount > CONFIG.MAX_ITEMS) throw new Error('No more than ' + CONFIG.MAX_ITEMS + ' expense items per trip.');
+}
 
-  trip.items.forEach(function (item, i) {
-    var label = 'Item ' + (i + 1);
-    if (CONFIG.CLAIM_TYPES.indexOf(item.claimType) === -1) throw new Error(label + ': invalid claim type.');
-    if (!item.description || !item.description.trim()) throw new Error(label + ': description is required.');
-    if (!item.amount || isNaN(item.amount) || Number(item.amount) <= 0) throw new Error(label + ': amount must be a positive number.');
-    if (!item.receiptFiles || item.receiptFiles.length === 0) throw new Error(label + ': at least one receipt file is required.');
-    if (item.receiptFiles.length > CONFIG.MAX_FILES_PER_ITEM) throw new Error(label + ': no more than ' + CONFIG.MAX_FILES_PER_ITEM + ' receipt files.');
-    if (item.ccFiles && item.ccFiles.length > CONFIG.MAX_FILES_PER_ITEM) throw new Error(label + ': no more than ' + CONFIG.MAX_FILES_PER_ITEM + ' credit card statement files.');
-    (item.receiptFiles || []).concat(item.ccFiles || []).forEach(function (f) {
-      var bytes = Math.ceil((f.base64.length * 3) / 4);
-      if (bytes > CONFIG.MAX_FILE_SIZE_BYTES) {
-        throw new Error(label + ': file "' + f.name + '" exceeds the ' + (CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024)) + ' MB limit.');
-      }
-    });
+function validateItem_(item, index) {
+  var label = 'Item ' + (index + 1);
+  if (!item) throw new Error(label + ': missing data.');
+  if (CONFIG.CLAIM_TYPES.indexOf(item.claimType) === -1) throw new Error(label + ': invalid claim type.');
+  if (!item.description || !item.description.trim()) throw new Error(label + ': description is required.');
+  if (!item.amount || isNaN(item.amount) || Number(item.amount) <= 0) throw new Error(label + ': amount must be a positive number.');
+  if (!item.receiptFiles || item.receiptFiles.length === 0) throw new Error(label + ': at least one receipt file is required.');
+  if (item.receiptFiles.length > CONFIG.MAX_FILES_PER_ITEM) throw new Error(label + ': no more than ' + CONFIG.MAX_FILES_PER_ITEM + ' receipt files.');
+  if (item.ccFiles && item.ccFiles.length > CONFIG.MAX_FILES_PER_ITEM) throw new Error(label + ': no more than ' + CONFIG.MAX_FILES_PER_ITEM + ' credit card statement files.');
+  (item.receiptFiles || []).concat(item.ccFiles || []).forEach(function (f) {
+    var bytes = Math.ceil((f.base64.length * 3) / 4);
+    if (bytes > CONFIG.MAX_FILE_SIZE_BYTES) {
+      throw new Error(label + ': file "' + f.name + '" exceeds the ' + (CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024)) + ' MB limit.');
+    }
   });
 }
 
@@ -177,17 +201,17 @@ function appendLogRow_(r) {
   ]);
 }
 
-function notifyApprovers_(tripCode, trip, total, folderUrl) {
+function notifyApprovers_(tripCode, header, itemCount, total, folderUrl) {
   if (!CONFIG.APPROVER_EMAILS || CONFIG.APPROVER_EMAILS.length === 0) return;
-  var subject = 'New travel receipts ' + tripCode + ' - ' + trip.employeeName + ' (' + trip.destination + ')';
+  var subject = 'New travel receipts ' + tripCode + ' - ' + header.employeeName + ' (' + header.destination + ')';
   var body = [
     'A new set of travel receipts has been submitted.',
     '',
     'Trip code: ' + tripCode,
-    'Employee: ' + trip.employeeName + ' (' + trip.employeeEmail + ')',
-    'Destination: ' + trip.destination,
-    'Dates: ' + trip.startDate + ' to ' + trip.endDate,
-    'Items: ' + trip.items.length,
+    'Employee: ' + header.employeeName + ' (' + header.employeeEmail + ')',
+    'Destination: ' + header.destination,
+    'Dates: ' + header.startDate + ' to ' + header.endDate,
+    'Items: ' + itemCount,
     'Total: SGD ' + total.toFixed(2),
     '',
     'Receipts: ' + folderUrl,
