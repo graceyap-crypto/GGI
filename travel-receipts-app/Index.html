@@ -87,6 +87,7 @@
       .row > div { flex: 1; }
       .files-list { font-size: 12px; color: var(--muted); margin-top: 5px; }
       .files-list-error { color: #b91c1c; font-weight: 600; }
+      .field-hint { font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
 
       .trip-section {
         border: 1px solid var(--border);
@@ -281,11 +282,13 @@
         <label>Amount (SGD)</label>
         <input type="number" class="amount" min="0.01" step="0.01" required>
 
-        <label>Receipt (multiple files allowed &mdash; PDF, JPG, PNG)</label>
+        <label>Receipt</label>
+        <div class="field-hint">Accepted: PDF, JPG, PNG &middot; max <?= maxFileSizeMB ?> MB per file &middot; multiple files allowed</div>
         <input type="file" class="receiptFiles" multiple accept=".pdf,.jpg,.jpeg,.png" required>
         <div class="files-list receiptFilesList"></div>
 
         <label>Credit card statement (optional)</label>
+        <div class="field-hint">Accepted: PDF, JPG, PNG &middot; max <?= maxFileSizeMB ?> MB per file &middot; multiple files allowed</div>
         <input type="file" class="ccFiles" multiple accept=".pdf,.jpg,.jpeg,.png">
         <div class="files-list ccFilesList"></div>
       </div>

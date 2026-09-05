@@ -21,6 +21,7 @@ function doGet() {
   var template = HtmlService.createTemplateFromFile('Index');
   template.claimTypes = CONFIG.CLAIM_TYPES;
   template.maxFileSizeBytes = CONFIG.MAX_FILE_SIZE_BYTES;
+  template.maxFileSizeMB = Math.round(CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024));
   return template.evaluate()
     .setTitle('GGI Travel Receipt Log')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
