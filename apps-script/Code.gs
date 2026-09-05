@@ -10,7 +10,9 @@ function doGet() {
   var template = HtmlService.createTemplateFromFile('Index');
   template.countries = Object.keys(COUNTRY_CURRENCY_MAP).sort();
   template.currencyMap = COUNTRY_CURRENCY_MAP;
-  template.logoDataUri = getLogoDataUri_();
+  var logo = getLogo_();
+  template.logoDataUri = logo.uri;
+  template.logoDebug = logo.error || 'loaded ok';
   return template.evaluate()
     .setTitle('GGI Team Expense Claim')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -19,16 +21,18 @@ function doGet() {
 /**
  * Fetches the header logo from Drive and returns it as a data: URI so it
  * can be embedded directly in the page with no separate hosting/sharing
- * step. Returns '' (and the page just skips the logo) if the file is
- * missing or the viewer doesn't have access, rather than breaking the form.
+ * step. On failure (missing file, or the viewer lacks access), returns an
+ * empty uri (the page just skips the logo, rather than breaking the form)
+ * plus the error message, which Index.html writes into an HTML comment so
+ * "View Page Source" shows exactly why the logo didn't load.
  */
-function getLogoDataUri_() {
+function getLogo_() {
   try {
     var blob = DriveApp.getFileById(CONFIG.LOGO_FILE_ID).getBlob();
     var base64 = Utilities.base64Encode(blob.getBytes());
-    return 'data:' + blob.getContentType() + ';base64,' + base64;
+    return { uri: 'data:' + blob.getContentType() + ';base64,' + base64, error: '' };
   } catch (e) {
-    return '';
+    return { uri: '', error: e.message || String(e) };
   }
 }
 
