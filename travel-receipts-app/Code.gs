@@ -4,14 +4,17 @@
  * expense line items (claim type, description, SGD amount, receipt,
  * optional credit card statement).
  *
- * Submission is split into one request per expense item (startTrip,
- * then one submitTripItem per item, then finalizeTrip) rather than one
- * big request carrying every item's files at once. A single request
- * that bundles several receipts/statements can be large enough that a
- * network intermediary (corporate proxy/firewall) rejects it outright
- * before it reaches Google, which shows up in the browser as a plain
- * network error rather than an app error. Keeping each request to one
- * item's files avoids that regardless of how many items a trip has.
+ * Submission is broken down to one Drive file per request (startTrip ->
+ * startItem -> one uploadItemFile call per receipt/statement file ->
+ * finishItem -> ... -> finalizeTrip), rather than bundling multiple
+ * files into a single request. A request carrying several receipt
+ * photos can be large enough that a network intermediary (corporate
+ * proxy/firewall) rejects it outright before it reaches Google, which
+ * shows up in the browser as a plain network error rather than an app
+ * error - even bundling just one item's files hit this once an item
+ * had a large enough photo/statement attached. Uploading strictly one
+ * file per request keeps every request small regardless of how many
+ * items or files a trip has.
  */
 
 function doGet() {
@@ -49,28 +52,62 @@ function startTrip(header) {
 }
 
 /**
- * Step 2: called once per expense item, each in its own request so no
- * single request carries more than one item's worth of files.
- * @param {Object} args - { tripCode, tripFolderId, header, index, item }
- *   item: { claimType, description, amount,
- *           receiptFiles: [{name, mimeType, base64}],
- *           ccFiles: [{name, mimeType, base64}] }
+ * Step 2: creates the numbered folder for one expense item, before any
+ * of its files are uploaded.
+ * @param {Object} args - { tripFolderId, index, claimType }
  */
-function submitTripItem(args) {
-  validateItem_(args.item, args.index);
-
+function startItem(args) {
+  if (CONFIG.CLAIM_TYPES.indexOf(args.claimType) === -1) {
+    throw new Error('Item ' + (args.index + 1) + ': invalid claim type.');
+  }
   var tripFolder = DriveApp.getFolderById(args.tripFolderId);
   var itemFolder = tripFolder.createFolder(
-    Utilities.formatString('%02d', args.index + 1) + ' - ' + args.item.claimType
+    Utilities.formatString('%02d', args.index + 1) + ' - ' + args.claimType
   );
-  var receiptNames = saveFiles_(itemFolder, args.item.receiptFiles);
-  var ccNames = [];
-  var ccFolderUrl = '';
-  if (args.item.ccFiles && args.item.ccFiles.length > 0) {
-    var ccFolder = itemFolder.createFolder('Credit Card Statement');
-    ccNames = saveFiles_(ccFolder, args.item.ccFiles);
-    ccFolderUrl = ccFolder.getUrl();
+  return { itemFolderId: itemFolder.getId(), itemFolderUrl: itemFolder.getUrl() };
+}
+
+/**
+ * Step 3: uploads exactly one file (a receipt or a credit card
+ * statement page) into an item's folder. Called once per file.
+ * @param {Object} args - { itemFolderId, isCC, index,
+ *   file: {name, mimeType, base64} }
+ */
+function uploadItemFile(args) {
+  var bytes = Math.ceil((args.file.base64.length * 3) / 4);
+  if (bytes > CONFIG.MAX_FILE_SIZE_BYTES) {
+    throw new Error(
+      'Item ' + (args.index + 1) + ': file "' + args.file.name + '" exceeds the ' +
+      (CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024)) + ' MB limit.'
+    );
   }
+
+  var itemFolder = DriveApp.getFolderById(args.itemFolderId);
+  var targetFolder = itemFolder;
+  if (args.isCC) {
+    var existing = itemFolder.getFoldersByName('Credit Card Statement');
+    targetFolder = existing.hasNext() ? existing.next() : itemFolder.createFolder('Credit Card Statement');
+  }
+
+  var decoded = Utilities.base64Decode(args.file.base64);
+  var blob = Utilities.newBlob(decoded, args.file.mimeType, args.file.name);
+  targetFolder.createFile(blob);
+
+  return { name: args.file.name, folderUrl: targetFolder.getUrl() };
+}
+
+/**
+ * Step 4: called once per item, after all of its files have uploaded,
+ * to validate the item's fields and append its row to the log.
+ * @param {Object} args - { tripCode, header, index, claimType,
+ *   description, amount, itemFolderUrl,
+ *   receiptNames: string[], ccFolderUrl, ccNames: string[] }
+ */
+function finishItem(args) {
+  var label = 'Item ' + (args.index + 1);
+  if (!args.description || !args.description.trim()) throw new Error(label + ': description is required.');
+  if (!args.amount || isNaN(args.amount) || Number(args.amount) <= 0) throw new Error(label + ': amount must be a positive number.');
+  if (!args.receiptNames || args.receiptNames.length === 0) throw new Error(label + ': at least one receipt file is required.');
 
   appendLogRow_({
     tripCode: args.tripCode,
@@ -79,20 +116,20 @@ function submitTripItem(args) {
     destination: args.header.destination,
     startDate: args.header.startDate,
     endDate: args.header.endDate,
-    claimType: args.item.claimType,
-    description: args.item.description,
-    amount: Number(args.item.amount),
-    receiptUrl: itemFolder.getUrl(),
-    receiptNames: receiptNames.join('; '),
-    ccUrl: ccFolderUrl,
-    ccNames: ccNames.join('; ')
+    claimType: args.claimType,
+    description: args.description,
+    amount: Number(args.amount),
+    receiptUrl: args.itemFolderUrl,
+    receiptNames: args.receiptNames.join('; '),
+    ccUrl: args.ccFolderUrl || '',
+    ccNames: (args.ccNames || []).join('; ')
   });
 
-  return { amount: Number(args.item.amount) };
+  return { amount: Number(args.amount) };
 }
 
 /**
- * Step 3: called once after every item has been submitted successfully.
+ * Step 5: called once after every item has been submitted successfully.
  * Sends the approver notification with the trip-level summary.
  */
 function finalizeTrip(tripCode, header, itemCount, total, tripFolderUrl) {
@@ -114,23 +151,6 @@ function validateTripHeader_(header) {
   if (new Date(header.startDate) > new Date(header.endDate)) throw new Error('Trip start date must be on or before the end date.');
   if (!header.itemCount || header.itemCount < 1) throw new Error('Add at least one expense item.');
   if (header.itemCount > CONFIG.MAX_ITEMS) throw new Error('No more than ' + CONFIG.MAX_ITEMS + ' expense items per trip.');
-}
-
-function validateItem_(item, index) {
-  var label = 'Item ' + (index + 1);
-  if (!item) throw new Error(label + ': missing data.');
-  if (CONFIG.CLAIM_TYPES.indexOf(item.claimType) === -1) throw new Error(label + ': invalid claim type.');
-  if (!item.description || !item.description.trim()) throw new Error(label + ': description is required.');
-  if (!item.amount || isNaN(item.amount) || Number(item.amount) <= 0) throw new Error(label + ': amount must be a positive number.');
-  if (!item.receiptFiles || item.receiptFiles.length === 0) throw new Error(label + ': at least one receipt file is required.');
-  if (item.receiptFiles.length > CONFIG.MAX_FILES_PER_ITEM) throw new Error(label + ': no more than ' + CONFIG.MAX_FILES_PER_ITEM + ' receipt files.');
-  if (item.ccFiles && item.ccFiles.length > CONFIG.MAX_FILES_PER_ITEM) throw new Error(label + ': no more than ' + CONFIG.MAX_FILES_PER_ITEM + ' credit card statement files.');
-  (item.receiptFiles || []).concat(item.ccFiles || []).forEach(function (f) {
-    var bytes = Math.ceil((f.base64.length * 3) / 4);
-    if (bytes > CONFIG.MAX_FILE_SIZE_BYTES) {
-      throw new Error(label + ': file "' + f.name + '" exceeds the ' + (CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024)) + ' MB limit.');
-    }
-  });
 }
 
 /**
@@ -166,15 +186,6 @@ function getOrCreateEmployeeFolder_(employeeName, employeeEmail) {
   var existing = root.getFoldersByName(folderName);
   if (existing.hasNext()) return existing.next();
   return root.createFolder(folderName);
-}
-
-function saveFiles_(folder, files) {
-  return files.map(function (f) {
-    var decoded = Utilities.base64Decode(f.base64);
-    var blob = Utilities.newBlob(decoded, f.mimeType, f.name);
-    folder.createFile(blob);
-    return f.name;
-  });
 }
 
 function appendLogRow_(r) {

@@ -357,18 +357,12 @@
         });
       }
 
-      function filesToPayload(fileList) {
-        return Promise.all(Array.prototype.map.call(fileList, function (file) {
-          return fileToBase64(file).then(function (base64) {
-            return { name: file.name, mimeType: file.type || 'application/octet-stream', base64: base64 };
-          });
-        }));
-      }
-
       // Wraps google.script.run in a Promise so each server call can be
-      // awaited one at a time, instead of bundling every item's files
-      // into a single request (a bundle large enough can be rejected by
-      // a network intermediary before it even reaches Google).
+      // awaited one at a time. Combined with uploading one file per
+      // request (see uploadOneByOne below), this keeps every request
+      // small regardless of how many items/files a trip has - a large
+      // bundled request can be rejected by a network intermediary
+      // before it even reaches Google.
       function callServer(fnName, args) {
         return new Promise(function (resolve, reject) {
           google.script.run
@@ -414,35 +408,77 @@
           submitBtn.textContent = 'Submit trip receipts';
         }
 
+        // Uploads one file at a time (never bundling multiple files into
+        // a single request) so a large photo/statement can't push a
+        // request past a size a network intermediary will reject.
+        function uploadOneByOne(itemFolderId, files, isCC, index, progressPrefix) {
+          var names = [];
+          var folderUrl = '';
+          var chain = Promise.resolve();
+          Array.prototype.forEach.call(files, function (file, fi) {
+            chain = chain.then(function () {
+              submitBtn.textContent = progressPrefix + ' (file ' + (fi + 1) + ' of ' + files.length + ')...';
+              return fileToBase64(file).then(function (base64) {
+                return callServer('uploadItemFile', [{
+                  itemFolderId: itemFolderId,
+                  isCC: isCC,
+                  index: index,
+                  file: { name: file.name, mimeType: file.type || 'application/octet-stream', base64: base64 }
+                }]);
+              }).then(function (res) {
+                names.push(res.name);
+                folderUrl = res.folderUrl;
+              });
+            });
+          });
+          return chain.then(function () { return { names: names, folderUrl: folderUrl }; });
+        }
+
         callServer('startTrip', [header]).then(function (start) {
           var total = 0;
+          var itemsDone = 0;
           var chain = Promise.resolve();
 
           itemEls.forEach(function (itemEl, index) {
             chain = chain.then(function () {
-              submitBtn.textContent = 'Uploading item ' + (index + 1) + ' of ' + itemEls.length + '...';
-              return Promise.all([
-                filesToPayload(itemEl.querySelector('.receiptFiles').files),
-                filesToPayload(itemEl.querySelector('.ccFiles').files)
-              ]).then(function (results) {
-                var item = {
-                  claimType: itemEl.querySelector('.claimType').value,
-                  description: itemEl.querySelector('.description').value,
-                  amount: itemEl.querySelector('.amount').value,
-                  receiptFiles: results[0],
-                  ccFiles: results[1]
-                };
-                return callServer('submitTripItem', [{
-                  tripCode: start.tripCode,
-                  tripFolderId: start.tripFolderId,
-                  header: header,
-                  index: index,
-                  item: item
-                }]);
+              var claimType = itemEl.querySelector('.claimType').value;
+              var description = itemEl.querySelector('.description').value;
+              var amount = itemEl.querySelector('.amount').value;
+              var receiptFiles = itemEl.querySelector('.receiptFiles').files;
+              var ccFiles = itemEl.querySelector('.ccFiles').files;
+
+              return callServer('startItem', [{
+                tripFolderId: start.tripFolderId,
+                index: index,
+                claimType: claimType
+              }]).then(function (itemStart) {
+                return uploadOneByOne(
+                  itemStart.itemFolderId, receiptFiles, false, index,
+                  'Uploading item ' + (index + 1) + ' of ' + itemEls.length + ' - receipt'
+                ).then(function (receiptRes) {
+                  return uploadOneByOne(
+                    itemStart.itemFolderId, ccFiles, true, index,
+                    'Uploading item ' + (index + 1) + ' of ' + itemEls.length + ' - card statement'
+                  ).then(function (ccRes) {
+                    return callServer('finishItem', [{
+                      tripCode: start.tripCode,
+                      header: header,
+                      index: index,
+                      claimType: claimType,
+                      description: description,
+                      amount: amount,
+                      itemFolderUrl: itemStart.itemFolderUrl,
+                      receiptNames: receiptRes.names,
+                      ccFolderUrl: ccRes.folderUrl,
+                      ccNames: ccRes.names
+                    }]);
+                  });
+                });
               }).then(function (res) {
                 total += res.amount;
+                itemsDone += 1;
               }).catch(function (err) {
-                throw (index === 0 ? '' : 'Items 1-' + index + ' were already saved under trip ' + start.tripCode + '. ') +
+                throw (itemsDone === 0 ? '' : 'Items 1-' + itemsDone + ' were already saved under trip ' + start.tripCode + '. ') +
                   'Item ' + (index + 1) + ' failed: ' + err;
               });
             });
