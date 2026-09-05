@@ -59,20 +59,10 @@
       #result { background: #ecfdf5; border: 1px solid #a7f3d0; }
       #error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
       #result b { display: block; margin-bottom: 4px; }
-      .logo {
-        display: block;
-        max-height: 64px;
-        max-width: 180px;
-        object-fit: contain;
-        margin: 0 0 12px;
-      }
     </style>
   </head>
   <body>
     <div class="card">
-      <? if (logoDataUri) { ?>
-        <img class="logo" src="<?= logoDataUri ?>" alt="GGI logo">
-      <? } ?>
       <h1>GGI Team Expense Claim</h1>
       <p class="sub">Fill in your details, attach receipts, and submit. A claim code is generated automatically and Finance is notified.</p>
 

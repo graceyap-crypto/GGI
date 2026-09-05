@@ -13,9 +13,6 @@ var CONFIG = {
   CLAIM_CODE_PREFIX: 'GGI',
   // Approver(s) notified by email whenever a new claim is submitted.
   APPROVER_EMAILS: ['grace.yap@greengeninnovations.com'],
-  // Logo shown in the form header, fetched live from Drive at page load
-  // (avoids pasting a large image blob into the Apps Script editor).
-  LOGO_FILE_ID: '1-U7CfRlt0dgq-u1oqLv_D6LSh1r3AlpS',
   MAX_FILES: 10,
   MAX_FILE_SIZE_BYTES: 15 * 1024 * 1024 // 15 MB per receipt
 };
