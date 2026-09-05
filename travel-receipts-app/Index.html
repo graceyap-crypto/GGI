@@ -357,18 +357,34 @@
         });
       }
 
+      function delay(ms) {
+        return new Promise(function (resolve) { setTimeout(resolve, ms); });
+      }
+
       // Wraps google.script.run in a Promise so each server call can be
-      // awaited one at a time. Combined with uploading one file per
-      // request (see uploadOneByOne below), this keeps every request
-      // small regardless of how many items/files a trip has - a large
-      // bundled request can be rejected by a network intermediary
-      // before it even reaches Google.
-      function callServer(fnName, args) {
+      // awaited one at a time, and automatically retries a call that
+      // fails with a plain network error (a "NetworkError... HTTP 400"
+      // with no app-level message is the browser failing to complete
+      // the request at all, e.g. a flaky connection - not an error from
+      // the script itself, which would carry a real message). A quiet
+      // retry after a short backoff handles that transient case instead
+      // of aborting the whole trip on the first blip.
+      function callServer(fnName, args, attempt) {
+        attempt = attempt || 1;
         return new Promise(function (resolve, reject) {
           google.script.run
             .withSuccessHandler(resolve)
-            .withFailureHandler(function (err) { reject(err.message || String(err)); })
+            .withFailureHandler(reject)
             [fnName].apply(null, args);
+        }).catch(function (err) {
+          var message = (err && err.message) || String(err);
+          var looksLikeNetworkBlip = /network/i.test(message) && !/^(Item|Missing|Add at least|No more than|Both a start|Trip start|A valid|Full|Employee|Description|Amount|File)/.test(message);
+          if (looksLikeNetworkBlip && attempt < 4) {
+            return delay(attempt * 1000).then(function () {
+              return callServer(fnName, args, attempt + 1);
+            });
+          }
+          throw message;
         });
       }
 
