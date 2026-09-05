@@ -1,3 +1,21 @@
+# GGI Expense Apps
+
+This repo has two lightweight Google Apps Script web apps for the team,
+both built the same way (no separate hosting — works directly with
+Google Drive/Sheets/Gmail):
+
+- **`apps-script/`** — the **Team Expense Claim App** (below): one
+  foreign-currency claim at a time, converted to SGD via a
+  Finance-maintained FX rate.
+- **`travel-receipts-app/`** — the **[Travel Receipt Log](travel-receipts-app/README.md)**:
+  log every receipt from a business trip (already in SGD) in a single
+  submission, grouped by trip.
+
+Use the claim app for one-off foreign-currency expenses, and the travel
+app for logging a batch of trip receipts at once.
+
+---
+
 # GGI Team Expense Claim App
 
 A lightweight expense claim form for the team, built as a Google Apps Script

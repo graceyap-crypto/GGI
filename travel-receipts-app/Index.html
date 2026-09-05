@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <base target="_top">
+    <meta charset="utf-8">
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+        background: #f4f6f8;
+        margin: 0;
+        padding: 24px;
+        color: #1f2937;
+      }
+      .card {
+        max-width: 640px;
+        margin: 0 auto;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        padding: 28px 32px;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      h2 { font-size: 14px; margin: 0; color: #374151; }
+      .sub { color: #6b7280; font-size: 13px; margin: 0 0 24px; }
+      label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+      input[type=text], input[type=email], input[type=number], input[type=date], select, textarea {
+        width: 100%;
+        padding: 9px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 8px;
+        font-size: 14px;
+        font-family: inherit;
+      }
+      textarea { resize: vertical; min-height: 50px; }
+      .row { display: flex; gap: 12px; }
+      .row > div { flex: 1; }
+      .hint { font-size: 12px; color: #6b7280; margin-top: 4px; }
+      .files-list { font-size: 12px; color: #374151; margin-top: 4px; }
+      .trip-section {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 16px 18px;
+        margin-top: 22px;
+      }
+      .item {
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 16px 18px;
+        margin-top: 14px;
+        position: relative;
+      }
+      .item-header { display: flex; justify-content: space-between; align-items: center; }
+      .remove-item {
+        background: none; border: none; color: #b91c1c; font-size: 13px;
+        font-weight: 600; cursor: pointer; padding: 0; margin: 0; width: auto;
+      }
+      #addItem {
+        margin-top: 14px;
+        background: #fff;
+        color: #2563eb;
+        border: 1px dashed #93c5fd;
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        width: 100%;
+      }
+      button[type=submit] {
+        margin-top: 24px;
+        width: 100%;
+        background: #2563eb;
+        color: #fff;
+        border: none;
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 15px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:disabled { background: #93c5fd; cursor: not-allowed; }
+      #result, #error {
+        margin-top: 20px;
+        padding: 14px 16px;
+        border-radius: 8px;
+        font-size: 14px;
+        display: none;
+      }
+      #result { background: #ecfdf5; border: 1px solid #a7f3d0; }
+      #error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+      #result b { display: block; margin-bottom: 4px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>GGI Travel Receipt Log</h1>
+      <p class="sub">Log every receipt for one trip in a single submission. A trip code is generated automatically and Finance is notified.</p>
+
+      <form id="tripForm">
+        <label>Full name</label>
+        <input type="text" id="employeeName" required>
+
+        <label>Work email</label>
+        <input type="email" id="employeeEmail" required>
+
+        <div class="trip-section">
+          <h2>Trip details</h2>
+          <label>Destination</label>
+          <input type="text" id="destination" placeholder="e.g. Jakarta, Indonesia" required>
+          <div class="row">
+            <div>
+              <label>Trip from</label>
+              <input type="date" id="startDate" required>
+            </div>
+            <div>
+              <label>Trip to</label>
+              <input type="date" id="endDate" required>
+            </div>
+          </div>
+        </div>
+
+        <div id="items"></div>
+        <button type="button" id="addItem">+ Add another expense</button>
+
+        <button type="submit" id="submitBtn">Submit trip receipts</button>
+      </form>
+
+      <div id="result"></div>
+      <div id="error"></div>
+    </div>
+
+    <template id="itemTemplate">
+      <div class="item">
+        <div class="item-header">
+          <h2 class="item-title">Expense 1</h2>
+          <button type="button" class="remove-item">Remove</button>
+        </div>
+
+        <label>Claim type</label>
+        <select class="claimType" required>
+          <? for (var i = 0; i < claimTypes.length; i++) { ?>
+            <option value="<?= claimTypes[i] ?>"><?= claimTypes[i] ?></option>
+          <? } ?>
+        </select>
+
+        <label>Description</label>
+        <textarea class="description" placeholder="e.g. Grab from airport to hotel" required></textarea>
+
+        <label>Amount (SGD)</label>
+        <input type="number" class="amount" min="0.01" step="0.01" required>
+
+        <label>Receipt (multiple files allowed &mdash; PDF, JPG, PNG)</label>
+        <input type="file" class="receiptFiles" multiple accept=".pdf,.jpg,.jpeg,.png" required>
+        <div class="files-list receiptFilesList"></div>
+
+        <label>Credit card statement (optional)</label>
+        <input type="file" class="ccFiles" multiple accept=".pdf,.jpg,.jpeg,.png">
+        <div class="files-list ccFilesList"></div>
+      </div>
+    </template>
+
+    <script>
+      var itemsEl = document.getElementById('items');
+      var itemTemplate = document.getElementById('itemTemplate');
+
+      function renumberItems() {
+        itemsEl.querySelectorAll('.item').forEach(function (el, i) {
+          el.querySelector('.item-title').textContent = 'Expense ' + (i + 1);
+        });
+      }
+
+      function addItem() {
+        var node = itemTemplate.content.cloneNode(true);
+        var itemEl = node.querySelector('.item');
+
+        itemEl.querySelector('.remove-item').addEventListener('click', function () {
+          if (itemsEl.querySelectorAll('.item').length > 1) {
+            itemEl.remove();
+            renumberItems();
+          }
+        });
+
+        itemEl.querySelector('.receiptFiles').addEventListener('change', function (e) {
+          var names = Array.prototype.map.call(e.target.files, function (f) { return f.name; });
+          itemEl.querySelector('.receiptFilesList').textContent = names.length ? ('Attached: ' + names.join(', ')) : '';
+        });
+        itemEl.querySelector('.ccFiles').addEventListener('change', function (e) {
+          var names = Array.prototype.map.call(e.target.files, function (f) { return f.name; });
+          itemEl.querySelector('.ccFilesList').textContent = names.length ? ('Attached: ' + names.join(', ')) : '';
+        });
+
+        itemsEl.appendChild(itemEl);
+        renumberItems();
+      }
+
+      document.getElementById('addItem').addEventListener('click', addItem);
+      addItem();
+
+      function fileToBase64(file) {
+        return new Promise(function (resolve, reject) {
+          var reader = new FileReader();
+          reader.onload = function () {
+            var result = reader.result;
+            resolve(result.substring(result.indexOf(',') + 1));
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function filesToPayload(fileList) {
+        return Promise.all(Array.prototype.map.call(fileList, function (file) {
+          return fileToBase64(file).then(function (base64) {
+            return { name: file.name, mimeType: file.type || 'application/octet-stream', base64: base64 };
+          });
+        }));
+      }
+
+      document.getElementById('tripForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var errorEl = document.getElementById('error');
+        var resultEl = document.getElementById('result');
+        var submitBtn = document.getElementById('submitBtn');
+        errorEl.style.display = 'none';
+        resultEl.style.display = 'none';
+
+        var itemEls = Array.prototype.slice.call(itemsEl.querySelectorAll('.item'));
+        for (var i = 0; i < itemEls.length; i++) {
+          if (!itemEls[i].querySelector('.receiptFiles').files.length) {
+            errorEl.textContent = 'Expense ' + (i + 1) + ': please attach at least one receipt.';
+            errorEl.style.display = 'block';
+            return;
+          }
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitting...';
+
+        Promise.all(itemEls.map(function (itemEl) {
+          return Promise.all([
+            filesToPayload(itemEl.querySelector('.receiptFiles').files),
+            filesToPayload(itemEl.querySelector('.ccFiles').files)
+          ]).then(function (results) {
+            return {
+              claimType: itemEl.querySelector('.claimType').value,
+              description: itemEl.querySelector('.description').value,
+              amount: itemEl.querySelector('.amount').value,
+              receiptFiles: results[0],
+              ccFiles: results[1]
+            };
+          });
+        })).then(function (items) {
+          var trip = {
+            employeeName: document.getElementById('employeeName').value,
+            employeeEmail: document.getElementById('employeeEmail').value,
+            destination: document.getElementById('destination').value,
+            startDate: document.getElementById('startDate').value,
+            endDate: document.getElementById('endDate').value,
+            items: items
+          };
+
+          google.script.run
+            .withSuccessHandler(function (res) {
+              resultEl.innerHTML = '<b>Trip submitted &mdash; ' + res.tripCode + '</b>' +
+                res.itemCount + ' item(s), total SGD ' + res.total.toFixed(2) + '.<br>' +
+                'Receipts saved to <a href="' + res.folderUrl + '" target="_blank">Drive folder</a>.';
+              resultEl.style.display = 'block';
+              document.getElementById('tripForm').reset();
+              itemsEl.innerHTML = '';
+              addItem();
+              submitBtn.disabled = false;
+              submitBtn.textContent = 'Submit trip receipts';
+            })
+            .withFailureHandler(function (err) {
+              errorEl.textContent = err.message || String(err);
+              errorEl.style.display = 'block';
+              submitBtn.disabled = false;
+              submitBtn.textContent = 'Submit trip receipts';
+            })
+            .submitTrip(trip);
+        });
+      });
+    </script>
+  </body>
+</html>
