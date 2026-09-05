@@ -10,9 +10,26 @@ function doGet() {
   var template = HtmlService.createTemplateFromFile('Index');
   template.countries = Object.keys(COUNTRY_CURRENCY_MAP).sort();
   template.currencyMap = COUNTRY_CURRENCY_MAP;
+  template.logoDataUri = getLogoDataUri_();
   return template.evaluate()
     .setTitle('GGI Team Expense Claim')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+/**
+ * Fetches the header logo from Drive and returns it as a data: URI so it
+ * can be embedded directly in the page with no separate hosting/sharing
+ * step. Returns '' (and the page just skips the logo) if the file is
+ * missing or the viewer doesn't have access, rather than breaking the form.
+ */
+function getLogoDataUri_() {
+  try {
+    var blob = DriveApp.getFileById(CONFIG.LOGO_FILE_ID).getBlob();
+    var base64 = Utilities.base64Encode(blob.getBytes());
+    return 'data:' + blob.getContentType() + ';base64,' + base64;
+  } catch (e) {
+    return '';
+  }
 }
 
 /**
