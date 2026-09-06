@@ -584,6 +584,8 @@
         callServer('startClaim', [header]).then(function (start) {
           var total = 0;
           var itemsDone = 0;
+          var firstRow = null;
+          var lastRow = null;
           var chain = Promise.resolve();
 
           itemEls.forEach(function (itemEl, index) {
@@ -624,6 +626,8 @@
               }).then(function (res) {
                 total += res.amount;
                 itemsDone += 1;
+                if (firstRow === null || res.row < firstRow) firstRow = res.row;
+                if (lastRow === null || res.row > lastRow) lastRow = res.row;
               }).catch(function (err) {
                 throw (itemsDone === 0 ? '' : 'Items 1-' + itemsDone + ' were already saved under claim ' + start.claimCode + '. ') +
                   'Item ' + (index + 1) + ' failed: ' + err;
@@ -632,7 +636,7 @@
           });
 
           return chain.then(function () {
-            return callServer('finalizeClaim', [start.claimCode, header, itemEls.length, total, start.claimFolderUrl]);
+            return callServer('finalizeClaim', [start.claimCode, header, itemEls.length, total, start.claimFolderUrl, firstRow, lastRow]);
           });
         }).then(function (res) {
           document.getElementById('resultText').innerHTML = '<b>Claim submitted &mdash; ' + res.claimCode + '</b>' +

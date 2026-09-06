@@ -120,7 +120,7 @@ function finishItem(args) {
   if (!args.amount || isNaN(args.amount) || Number(args.amount) <= 0) throw new Error(label + ': amount must be a positive number.');
   if (!args.receiptNames || args.receiptNames.length === 0) throw new Error(label + ': at least one receipt file is required.');
 
-  appendLogRow_({
+  var row = appendLogRow_({
     claimCode: args.claimCode,
     employeeName: args.header.employeeName,
     employeeEmail: args.header.employeeEmail,
@@ -138,15 +138,16 @@ function finishItem(args) {
     claimDate: args.header.category === 'General' ? args.header.claimDate : ''
   });
 
-  return { amount: Number(args.amount) };
+  return { amount: Number(args.amount), row: row };
 }
 
 /**
  * Step 5: called once after every item has been submitted successfully.
- * Sends the approver notification with the claim-level summary.
+ * Sends the approver notification with the claim-level summary and a
+ * link that jumps straight to this claim's rows in the log.
  */
-function finalizeClaim(claimCode, header, itemCount, total, claimFolderUrl) {
-  notifyApprovers_(claimCode, header, itemCount, total, claimFolderUrl);
+function finalizeClaim(claimCode, header, itemCount, total, claimFolderUrl, firstRow, lastRow) {
+  notifyApprovers_(claimCode, header, itemCount, total, claimFolderUrl, firstRow, lastRow);
   return {
     claimCode: claimCode,
     itemCount: itemCount,
@@ -210,6 +211,10 @@ function getOrCreateEmployeeFolder_(employeeName, employeeEmail) {
   return root.createFolder(folderName);
 }
 
+/**
+ * Appends one row and returns the row number it landed on, so the
+ * caller can link an approver straight to it afterward.
+ */
 function appendLogRow_(r) {
   var sheet = SpreadsheetApp.openById(CONFIG.LOG_SHEET_ID).getSheetByName(CONFIG.LOG_SHEET_NAME);
   sheet.appendRow([
@@ -234,10 +239,15 @@ function appendLogRow_(r) {
     r.category,
     r.claimDate
   ]);
+  return sheet.getLastRow();
 }
 
-function notifyApprovers_(claimCode, header, itemCount, total, folderUrl) {
+function notifyApprovers_(claimCode, header, itemCount, total, folderUrl, firstRow, lastRow) {
   if (!CONFIG.APPROVER_EMAILS || CONFIG.APPROVER_EMAILS.length === 0) return;
+  var sheet = SpreadsheetApp.openById(CONFIG.LOG_SHEET_ID).getSheetByName(CONFIG.LOG_SHEET_NAME);
+  var logUrl = 'https://docs.google.com/spreadsheets/d/' + CONFIG.LOG_SHEET_ID +
+    '/edit#gid=' + sheet.getSheetId() + '&range=A' + firstRow + ':A' + lastRow;
+
   var subject = 'New ' + header.category.toLowerCase() + ' claim ' + claimCode + ' - ' + header.employeeName;
   var bodyLines = [
     'A new expense claim has been submitted.',
@@ -255,6 +265,7 @@ function notifyApprovers_(claimCode, header, itemCount, total, folderUrl) {
   bodyLines.push('Items: ' + itemCount);
   bodyLines.push('Total: SGD ' + total.toFixed(2));
   bodyLines.push('');
+  bodyLines.push('Review & approve: ' + logUrl);
   bodyLines.push('Receipts: ' + folderUrl);
   bodyLines.push('');
   bodyLines.push('Approve or reject each line item by updating the Status column in the GGI Expense Claim Log.');
