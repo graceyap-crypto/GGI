@@ -14,6 +14,9 @@
         --primary: #1d4ed8;
         --primary-dark: #1e40af;
         --primary-soft: #eff6ff;
+        --general: #b45309;
+        --general-dark: #92400e;
+        --general-soft: #fef3c7;
       }
       body {
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
@@ -89,6 +92,24 @@
       .files-list-error { color: #b91c1c; font-weight: 600; }
       .field-hint { font-size: 12px; color: var(--muted); margin: 2px 0 6px; }
 
+      .category-toggle { display: flex; gap: 10px; }
+      .cat-pill { position: relative; cursor: pointer; }
+      .cat-pill input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+      .cat-pill span {
+        display: inline-block;
+        padding: 9px 20px;
+        border-radius: 999px;
+        border: 1.5px solid var(--border);
+        background: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        color: #475569;
+        transition: background 0.15s, border-color 0.15s, color 0.15s;
+      }
+      .cat-pill:nth-child(1) input:checked + span { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-dark); }
+      .cat-pill:nth-child(2) input:checked + span { background: var(--general-soft); border-color: var(--general); color: var(--general-dark); }
+      .cat-pill input:focus-visible + span { outline: 2px solid var(--primary); outline-offset: 2px; }
+
       .trip-section {
         border: 1px solid var(--border);
         border-radius: 12px;
@@ -109,6 +130,11 @@
       .item[data-type="Food"]          { border-left-color: #059669; }
       .item[data-type="Entertainment"] { border-left-color: #7c3aed; }
       .item[data-type="Misc"]          { border-left-color: #64748b; }
+      .item[data-type="Training"]      { border-left-color: #0d9488; }
+      .item[data-type="Fixed Asset"]   { border-left-color: #4f46e5; }
+      .item[data-type="Meal"]          { border-left-color: #d97706; }
+      .item[data-type="Medical"]       { border-left-color: #e11d48; }
+      .item[data-type="Miscellaneous"] { border-left-color: #64748b; }
 
       .item-header { display: flex; justify-content: space-between; align-items: center; }
       .item-title { display: flex; align-items: center; gap: 10px; margin: 0; }
@@ -193,15 +219,15 @@
     <div class="card">
       <div class="banner">
         <p class="eyebrow">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M2 16l5-11 5 8 4-6 6 12z"/></svg>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
           GGI Finance
         </p>
-        <h1>Travel Receipt Log</h1>
-        <p>Log every receipt for one trip in a single submission. A trip code is generated automatically and Finance is notified.</p>
+        <h1>Expense Claim Log</h1>
+        <p>Log every receipt for a trip or a general expense claim in a single submission. A claim code is generated automatically and Finance is notified.</p>
       </div>
 
       <div class="body">
-        <form id="tripForm">
+        <form id="claimForm">
           <div class="section-label">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
             Your details
@@ -218,10 +244,21 @@
           </div>
 
           <div class="section-label">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16l5-11 5 8 4-6 6 12z"/></svg>
-            Trip details
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
+            Claim category
           </div>
-          <div class="trip-section">
+          <div class="category-toggle">
+            <label class="cat-pill">
+              <input type="radio" name="category" value="Travel" checked>
+              <span>Travel</span>
+            </label>
+            <label class="cat-pill">
+              <input type="radio" name="category" value="General">
+              <span>General</span>
+            </label>
+          </div>
+
+          <div class="trip-section" id="travelFields" style="margin-top:16px;">
             <label>Destination</label>
             <input type="text" id="destination" placeholder="e.g. Jakarta, Indonesia" required>
             <div class="row">
@@ -236,6 +273,11 @@
             </div>
           </div>
 
+          <div class="trip-section" id="generalFields" style="margin-top:16px;" hidden>
+            <label>Claim date</label>
+            <input type="date" id="claimDate">
+          </div>
+
           <div class="section-label">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>
             Expenses
@@ -244,11 +286,11 @@
           <button type="button" id="addItem">+ Add another expense</button>
 
           <div class="totals-bar">
-            <span class="label">Trip total (SGD)</span>
-            <span class="value" id="tripTotal">0.00</span>
+            <span class="label">Claim total (SGD)</span>
+            <span class="value" id="claimTotal">0.00</span>
           </div>
 
-          <button type="submit" id="submitBtn">Submit trip receipts</button>
+          <button type="submit" id="submitBtn">Submit claim</button>
         </form>
 
         <div id="result">
@@ -269,12 +311,8 @@
           <button type="button" class="remove-item">Remove</button>
         </div>
 
-        <label>Claim type</label>
-        <select class="claimType" required>
-          <? for (var i = 0; i < claimTypes.length; i++) { ?>
-            <option value="<?= claimTypes[i] ?>"><?= claimTypes[i] ?></option>
-          <? } ?>
-        </select>
+        <label>Category</label>
+        <select class="subcategory" required></select>
 
         <label>Description</label>
         <textarea class="description" placeholder="e.g. Grab from airport to hotel" required></textarea>
@@ -295,10 +333,28 @@
     </template>
 
     <script>
+      var TRAVEL_SUBCATS = <?!= JSON.stringify(travelSubcategories) ?>;
+      var GENERAL_SUBCATS = <?!= JSON.stringify(generalSubcategories) ?>;
+      var currentCategory = 'Travel';
+
       var itemsEl = document.getElementById('items');
       var itemTemplate = document.getElementById('itemTemplate');
       var MAX_FILE_SIZE_BYTES = <?= maxFileSizeBytes ?>;
       var MAX_FILE_SIZE_MB = Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024));
+
+      function subcatsForCategory(cat) {
+        return cat === 'Travel' ? TRAVEL_SUBCATS : GENERAL_SUBCATS;
+      }
+
+      function populateSubcategorySelect(selectEl) {
+        selectEl.innerHTML = '';
+        subcatsForCategory(currentCategory).forEach(function (v) {
+          var opt = document.createElement('option');
+          opt.value = v;
+          opt.textContent = v;
+          selectEl.appendChild(opt);
+        });
+      }
 
       function formatMB(bytes) {
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
@@ -347,17 +403,18 @@
           var v = parseFloat(input.value);
           if (!isNaN(v)) total += v;
         });
-        document.getElementById('tripTotal').textContent = total.toFixed(2);
+        document.getElementById('claimTotal').textContent = total.toFixed(2);
       }
 
       function addItem() {
         var node = itemTemplate.content.cloneNode(true);
         var itemEl = node.querySelector('.item');
-        var claimTypeSelect = itemEl.querySelector('.claimType');
+        var subcategorySelect = itemEl.querySelector('.subcategory');
 
-        itemEl.dataset.type = claimTypeSelect.value;
-        claimTypeSelect.addEventListener('change', function () {
-          itemEl.dataset.type = claimTypeSelect.value;
+        populateSubcategorySelect(subcategorySelect);
+        itemEl.dataset.type = subcategorySelect.value;
+        subcategorySelect.addEventListener('change', function () {
+          itemEl.dataset.type = subcategorySelect.value;
         });
 
         itemEl.querySelector('.amount').addEventListener('input', updateTotal);
@@ -384,6 +441,30 @@
       document.getElementById('addItem').addEventListener('click', addItem);
       addItem();
 
+      var travelFields = document.getElementById('travelFields');
+      var generalFields = document.getElementById('generalFields');
+      var destinationInput = document.getElementById('destination');
+      var startDateInput = document.getElementById('startDate');
+      var endDateInput = document.getElementById('endDate');
+      var claimDateInput = document.getElementById('claimDate');
+
+      document.querySelectorAll('input[name="category"]').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+          currentCategory = radio.value;
+          var isTravel = currentCategory === 'Travel';
+          travelFields.hidden = !isTravel;
+          generalFields.hidden = isTravel;
+          destinationInput.required = isTravel;
+          startDateInput.required = isTravel;
+          endDateInput.required = isTravel;
+          claimDateInput.required = !isTravel;
+
+          itemsEl.innerHTML = '';
+          addItem();
+          updateTotal();
+        });
+      });
+
       function fileToBase64(file) {
         return new Promise(function (resolve, reject) {
           var reader = new FileReader();
@@ -407,7 +488,7 @@
       // the request at all, e.g. a flaky connection - not an error from
       // the script itself, which would carry a real message). A quiet
       // retry after a short backoff handles that transient case instead
-      // of aborting the whole trip on the first blip.
+      // of aborting the whole claim on the first blip.
       function callServer(fnName, args, attempt) {
         attempt = attempt || 1;
         return new Promise(function (resolve, reject) {
@@ -417,7 +498,7 @@
             [fnName].apply(null, args);
         }).catch(function (err) {
           var message = (err && err.message) || String(err);
-          var looksLikeNetworkBlip = /network/i.test(message) && !/^(Item|Missing|Add at least|No more than|Both a start|Trip start|A valid|Full|Employee|Description|Amount|File)/.test(message);
+          var looksLikeNetworkBlip = /network/i.test(message) && !/^(Item|Missing|Add at least|No more than|Both a start|Trip start|A valid|Full|Employee|Description|Amount|File|Select|Claim|Destination)/.test(message);
           if (looksLikeNetworkBlip && attempt < 4) {
             return delay(attempt * 1000).then(function () {
               return callServer(fnName, args, attempt + 1);
@@ -427,7 +508,7 @@
         });
       }
 
-      document.getElementById('tripForm').addEventListener('submit', function (e) {
+      document.getElementById('claimForm').addEventListener('submit', function (e) {
         e.preventDefault();
         var errorEl = document.getElementById('error');
         var resultEl = document.getElementById('result');
@@ -457,11 +538,13 @@
         submitBtn.textContent = 'Submitting...';
 
         var header = {
+          category: currentCategory,
           employeeName: document.getElementById('employeeName').value,
           employeeEmail: document.getElementById('employeeEmail').value,
-          destination: document.getElementById('destination').value,
-          startDate: document.getElementById('startDate').value,
-          endDate: document.getElementById('endDate').value,
+          destination: destinationInput.value,
+          startDate: startDateInput.value,
+          endDate: endDateInput.value,
+          claimDate: claimDateInput.value,
           itemCount: itemEls.length
         };
 
@@ -469,7 +552,7 @@
           document.getElementById('errorText').textContent = message;
           errorEl.style.display = 'flex';
           submitBtn.disabled = false;
-          submitBtn.textContent = 'Submit trip receipts';
+          submitBtn.textContent = 'Submit claim';
         }
 
         // Uploads one file at a time (never bundling multiple files into
@@ -498,23 +581,23 @@
           return chain.then(function () { return { names: names, folderUrl: folderUrl }; });
         }
 
-        callServer('startTrip', [header]).then(function (start) {
+        callServer('startClaim', [header]).then(function (start) {
           var total = 0;
           var itemsDone = 0;
           var chain = Promise.resolve();
 
           itemEls.forEach(function (itemEl, index) {
             chain = chain.then(function () {
-              var claimType = itemEl.querySelector('.claimType').value;
+              var subcategory = itemEl.querySelector('.subcategory').value;
               var description = itemEl.querySelector('.description').value;
               var amount = itemEl.querySelector('.amount').value;
               var receiptFiles = itemEl.querySelector('.receiptFiles').files;
               var ccFiles = itemEl.querySelector('.ccFiles').files;
 
               return callServer('startItem', [{
-                tripFolderId: start.tripFolderId,
+                claimFolderId: start.claimFolderId,
                 index: index,
-                claimType: claimType
+                subcategory: subcategory
               }]).then(function (itemStart) {
                 return uploadOneByOne(
                   itemStart.itemFolderId, receiptFiles, false, index,
@@ -525,10 +608,10 @@
                     'Uploading item ' + (index + 1) + ' of ' + itemEls.length + ' - card statement'
                   ).then(function (ccRes) {
                     return callServer('finishItem', [{
-                      tripCode: start.tripCode,
+                      claimCode: start.claimCode,
                       header: header,
                       index: index,
-                      claimType: claimType,
+                      subcategory: subcategory,
                       description: description,
                       amount: amount,
                       itemFolderUrl: itemStart.itemFolderUrl,
@@ -542,26 +625,34 @@
                 total += res.amount;
                 itemsDone += 1;
               }).catch(function (err) {
-                throw (itemsDone === 0 ? '' : 'Items 1-' + itemsDone + ' were already saved under trip ' + start.tripCode + '. ') +
+                throw (itemsDone === 0 ? '' : 'Items 1-' + itemsDone + ' were already saved under claim ' + start.claimCode + '. ') +
                   'Item ' + (index + 1) + ' failed: ' + err;
               });
             });
           });
 
           return chain.then(function () {
-            return callServer('finalizeTrip', [start.tripCode, header, itemEls.length, total, start.tripFolderUrl]);
+            return callServer('finalizeClaim', [start.claimCode, header, itemEls.length, total, start.claimFolderUrl]);
           });
         }).then(function (res) {
-          document.getElementById('resultText').innerHTML = '<b>Trip submitted &mdash; ' + res.tripCode + '</b>' +
+          document.getElementById('resultText').innerHTML = '<b>Claim submitted &mdash; ' + res.claimCode + '</b>' +
             res.itemCount + ' item(s), total SGD ' + res.total.toFixed(2) + '.<br>' +
             'Receipts saved to <a href="' + res.folderUrl + '" target="_blank">Drive folder</a>.';
           resultEl.style.display = 'flex';
-          document.getElementById('tripForm').reset();
+          document.getElementById('claimForm').reset();
+          document.querySelector('input[name="category"][value="Travel"]').checked = true;
+          currentCategory = 'Travel';
+          travelFields.hidden = false;
+          generalFields.hidden = true;
+          destinationInput.required = true;
+          startDateInput.required = true;
+          endDateInput.required = true;
+          claimDateInput.required = false;
           itemsEl.innerHTML = '';
           addItem();
           updateTotal();
           submitBtn.disabled = false;
-          submitBtn.textContent = 'Submit trip receipts';
+          submitBtn.textContent = 'Submit claim';
         }).catch(fail);
       });
     </script>

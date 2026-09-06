@@ -1,12 +1,17 @@
 /**
- * GGI Travel Receipt Log App
- * Serves a per-trip form (destination + date range) with one or more
- * expense line items (claim type, description, SGD amount, receipt,
- * optional credit card statement).
+ * GGI Expense Claim Log App
+ * Serves a per-claim form covering two categories:
+ *  - Travel: destination + date range, subcategories Transport/Food/
+ *    Entertainment/Misc (the app's original flow).
+ *  - General: a single claim date, subcategories Training/Fixed Asset/
+ *    Entertainment/Meal/Transport/Medical/Miscellaneous.
+ * Either way the claim can have one or more expense line items (claim
+ * type, description, SGD amount, receipt, optional credit card
+ * statement).
  *
- * Submission is broken down to one Drive file per request (startTrip ->
+ * Submission is broken down to one Drive file per request (startClaim ->
  * startItem -> one uploadItemFile call per receipt/statement file ->
- * finishItem -> ... -> finalizeTrip), rather than bundling multiple
+ * finishItem -> ... -> finalizeClaim), rather than bundling multiple
  * files into a single request. A request carrying several receipt
  * photos can be large enough that a network intermediary (corporate
  * proxy/firewall) rejects it outright before it reaches Google, which
@@ -14,57 +19,61 @@
  * error - even bundling just one item's files hit this once an item
  * had a large enough photo/statement attached. Uploading strictly one
  * file per request keeps every request small regardless of how many
- * items or files a trip has.
+ * items or files a claim has.
  */
 
 function doGet() {
   var template = HtmlService.createTemplateFromFile('Index');
-  template.claimTypes = CONFIG.CLAIM_TYPES;
+  template.travelSubcategories = CONFIG.TRAVEL_SUBCATEGORIES;
+  template.generalSubcategories = CONFIG.GENERAL_SUBCATEGORIES;
   template.maxFileSizeBytes = CONFIG.MAX_FILE_SIZE_BYTES;
   template.maxFileSizeMB = Math.round(CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024));
   return template.evaluate()
-    .setTitle('GGI Travel Receipt Log')
+    .setTitle('GGI Expense Claim Log')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 /**
- * Step 1: validates the trip header, generates the trip code, and
- * creates the employee/trip folders. Called once per submission.
- * @param {Object} header - { employeeName, employeeEmail, destination,
- *   startDate, endDate, itemCount }
+ * Step 1: validates the claim header, generates the claim code, and
+ * creates the employee/claim folders. Called once per submission.
+ * @param {Object} header - { category: 'Travel'|'General',
+ *   employeeName, employeeEmail, destination, startDate, endDate,
+ *   claimDate, itemCount }
  */
-function startTrip(header) {
-  validateTripHeader_(header);
+function startClaim(header) {
+  validateHeader_(header);
 
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
-  var tripCode;
+  var claimCode;
   try {
-    tripCode = generateTripCode_();
+    claimCode = generateClaimCode_(header.category);
   } finally {
     lock.releaseLock();
   }
 
   var employeeFolder = getOrCreateEmployeeFolder_(header.employeeName, header.employeeEmail);
-  var tripFolder = employeeFolder.createFolder(
-    tripCode + ' - ' + header.destination + ' (' + header.startDate + ' to ' + header.endDate + ')'
-  );
+  var folderLabel = header.category === 'Travel'
+    ? claimCode + ' - ' + header.destination + ' (' + header.startDate + ' to ' + header.endDate + ')'
+    : claimCode + ' - General (' + header.claimDate + ')';
+  var claimFolder = employeeFolder.createFolder(folderLabel);
 
-  return { tripCode: tripCode, tripFolderId: tripFolder.getId(), tripFolderUrl: tripFolder.getUrl() };
+  return { claimCode: claimCode, claimFolderId: claimFolder.getId(), claimFolderUrl: claimFolder.getUrl() };
 }
 
 /**
  * Step 2: creates the numbered folder for one expense item, before any
  * of its files are uploaded.
- * @param {Object} args - { tripFolderId, index, claimType }
+ * @param {Object} args - { claimFolderId, index, subcategory }
  */
 function startItem(args) {
-  if (CONFIG.CLAIM_TYPES.indexOf(args.claimType) === -1) {
-    throw new Error('Item ' + (args.index + 1) + ': invalid claim type.');
+  var allowed = CONFIG.TRAVEL_SUBCATEGORIES.concat(CONFIG.GENERAL_SUBCATEGORIES);
+  if (allowed.indexOf(args.subcategory) === -1) {
+    throw new Error('Item ' + (args.index + 1) + ': invalid category.');
   }
-  var tripFolder = DriveApp.getFolderById(args.tripFolderId);
-  var itemFolder = tripFolder.createFolder(
-    Utilities.formatString('%02d', args.index + 1) + ' - ' + args.claimType
+  var claimFolder = DriveApp.getFolderById(args.claimFolderId);
+  var itemFolder = claimFolder.createFolder(
+    Utilities.formatString('%02d', args.index + 1) + ' - ' + args.subcategory
   );
   return { itemFolderId: itemFolder.getId(), itemFolderUrl: itemFolder.getUrl() };
 }
@@ -101,7 +110,7 @@ function uploadItemFile(args) {
 /**
  * Step 4: called once per item, after all of its files have uploaded,
  * to validate the item's fields and append its row to the log.
- * @param {Object} args - { tripCode, header, index, claimType,
+ * @param {Object} args - { claimCode, header, index, subcategory,
  *   description, amount, itemFolderUrl,
  *   receiptNames: string[], ccFolderUrl, ccNames: string[] }
  */
@@ -112,19 +121,21 @@ function finishItem(args) {
   if (!args.receiptNames || args.receiptNames.length === 0) throw new Error(label + ': at least one receipt file is required.');
 
   appendLogRow_({
-    tripCode: args.tripCode,
+    claimCode: args.claimCode,
     employeeName: args.header.employeeName,
     employeeEmail: args.header.employeeEmail,
-    destination: args.header.destination,
-    startDate: args.header.startDate,
-    endDate: args.header.endDate,
-    claimType: args.claimType,
+    destination: args.header.category === 'Travel' ? args.header.destination : '',
+    startDate: args.header.category === 'Travel' ? args.header.startDate : '',
+    endDate: args.header.category === 'Travel' ? args.header.endDate : '',
+    subcategory: args.subcategory,
     description: args.description,
     amount: Number(args.amount),
     receiptUrl: args.itemFolderUrl,
     receiptNames: args.receiptNames.join('; '),
     ccUrl: args.ccFolderUrl || '',
-    ccNames: (args.ccNames || []).join('; ')
+    ccNames: (args.ccNames || []).join('; '),
+    category: args.header.category,
+    claimDate: args.header.category === 'General' ? args.header.claimDate : ''
   });
 
   return { amount: Number(args.amount) };
@@ -132,35 +143,44 @@ function finishItem(args) {
 
 /**
  * Step 5: called once after every item has been submitted successfully.
- * Sends the approver notification with the trip-level summary.
+ * Sends the approver notification with the claim-level summary.
  */
-function finalizeTrip(tripCode, header, itemCount, total, tripFolderUrl) {
-  notifyApprovers_(tripCode, header, itemCount, total, tripFolderUrl);
+function finalizeClaim(claimCode, header, itemCount, total, claimFolderUrl) {
+  notifyApprovers_(claimCode, header, itemCount, total, claimFolderUrl);
   return {
-    tripCode: tripCode,
+    claimCode: claimCode,
     itemCount: itemCount,
     total: Math.round(total * 100) / 100,
-    folderUrl: tripFolderUrl
+    folderUrl: claimFolderUrl
   };
 }
 
-function validateTripHeader_(header) {
-  if (!header) throw new Error('Missing trip data.');
+function validateHeader_(header) {
+  if (!header) throw new Error('Missing claim data.');
+  if (header.category !== 'Travel' && header.category !== 'General') throw new Error('Select a claim category.');
   if (!header.employeeName || !header.employeeName.trim()) throw new Error('Employee name is required.');
   if (!header.employeeEmail || !/^\S+@\S+\.\S+$/.test(header.employeeEmail)) throw new Error('A valid employee email is required.');
-  if (!header.destination || !header.destination.trim()) throw new Error('Destination is required.');
-  if (!header.startDate || !header.endDate) throw new Error('Both a start and end date are required.');
-  if (new Date(header.startDate) > new Date(header.endDate)) throw new Error('Trip start date must be on or before the end date.');
+
+  if (header.category === 'Travel') {
+    if (!header.destination || !header.destination.trim()) throw new Error('Destination is required.');
+    if (!header.startDate || !header.endDate) throw new Error('Both a start and end date are required.');
+    if (new Date(header.startDate) > new Date(header.endDate)) throw new Error('Trip start date must be on or before the end date.');
+  } else {
+    if (!header.claimDate) throw new Error('Claim date is required.');
+  }
+
   if (!header.itemCount || header.itemCount < 1) throw new Error('Add at least one expense item.');
-  if (header.itemCount > CONFIG.MAX_ITEMS) throw new Error('No more than ' + CONFIG.MAX_ITEMS + ' expense items per trip.');
+  if (header.itemCount > CONFIG.MAX_ITEMS) throw new Error('No more than ' + CONFIG.MAX_ITEMS + ' expense items per claim.');
 }
 
 /**
- * Sequential, human-readable trip code: TRIP-YYYY-0001
- * Sequence resets each year and is derived from the last row in the
- * log so there is no separate counter to keep in sync.
+ * Sequential, human-readable claim code: TRIP-YYYY-0001 or GEN-YYYY-0001.
+ * Sequence resets each year per prefix and is derived from the last
+ * matching row in the log, so there is no separate counter to keep in
+ * sync, and Travel/General numbering don't interfere with each other.
  */
-function generateTripCode_() {
+function generateClaimCode_(category) {
+  var prefix = CONFIG.CODE_PREFIXES[category];
   var sheet = SpreadsheetApp.openById(CONFIG.LOG_SHEET_ID).getSheetByName(CONFIG.LOG_SHEET_NAME);
   var year = new Date().getFullYear();
   var lastRow = sheet.getLastRow();
@@ -168,18 +188,18 @@ function generateTripCode_() {
 
   if (lastRow > 1) {
     var codes = sheet.getRange(2, 2, lastRow - 1, 1).getValues();
-    var prefix = CONFIG.TRIP_CODE_PREFIX + '-' + year + '-';
+    var yearPrefix = prefix + '-' + year + '-';
     codes.forEach(function (row) {
       var code = String(row[0] || '');
-      if (code.indexOf(prefix) === 0) {
-        var seq = parseInt(code.substring(prefix.length), 10);
+      if (code.indexOf(yearPrefix) === 0) {
+        var seq = parseInt(code.substring(yearPrefix.length), 10);
         if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
       }
     });
   }
 
   var next = String(maxSeq + 1).padStart(4, '0');
-  return CONFIG.TRIP_CODE_PREFIX + '-' + year + '-' + next;
+  return prefix + '-' + year + '-' + next;
 }
 
 function getOrCreateEmployeeFolder_(employeeName, employeeEmail) {
@@ -194,13 +214,13 @@ function appendLogRow_(r) {
   var sheet = SpreadsheetApp.openById(CONFIG.LOG_SHEET_ID).getSheetByName(CONFIG.LOG_SHEET_NAME);
   sheet.appendRow([
     new Date(),
-    r.tripCode,
+    r.claimCode,
     r.employeeName,
     r.employeeEmail,
     r.destination,
     r.startDate,
     r.endDate,
-    r.claimType,
+    r.subcategory,
     r.description,
     r.amount,
     r.receiptUrl,
@@ -210,26 +230,33 @@ function appendLogRow_(r) {
     'Pending Approval',
     '',
     '',
-    ''
+    '',
+    r.category,
+    r.claimDate
   ]);
 }
 
-function notifyApprovers_(tripCode, header, itemCount, total, folderUrl) {
+function notifyApprovers_(claimCode, header, itemCount, total, folderUrl) {
   if (!CONFIG.APPROVER_EMAILS || CONFIG.APPROVER_EMAILS.length === 0) return;
-  var subject = 'New travel receipts ' + tripCode + ' - ' + header.employeeName + ' (' + header.destination + ')';
-  var body = [
-    'A new set of travel receipts has been submitted.',
+  var subject = 'New ' + header.category.toLowerCase() + ' claim ' + claimCode + ' - ' + header.employeeName;
+  var bodyLines = [
+    'A new expense claim has been submitted.',
     '',
-    'Trip code: ' + tripCode,
-    'Employee: ' + header.employeeName + ' (' + header.employeeEmail + ')',
-    'Destination: ' + header.destination,
-    'Dates: ' + header.startDate + ' to ' + header.endDate,
-    'Items: ' + itemCount,
-    'Total: SGD ' + total.toFixed(2),
-    '',
-    'Receipts: ' + folderUrl,
-    '',
-    'Approve or reject each line item by updating the Status column in the GGI Travel Receipts Log.'
-  ].join('\n');
-  MailApp.sendEmail(CONFIG.APPROVER_EMAILS.join(','), subject, body);
+    'Claim code: ' + claimCode,
+    'Category: ' + header.category,
+    'Employee: ' + header.employeeName + ' (' + header.employeeEmail + ')'
+  ];
+  if (header.category === 'Travel') {
+    bodyLines.push('Destination: ' + header.destination);
+    bodyLines.push('Dates: ' + header.startDate + ' to ' + header.endDate);
+  } else {
+    bodyLines.push('Claim date: ' + header.claimDate);
+  }
+  bodyLines.push('Items: ' + itemCount);
+  bodyLines.push('Total: SGD ' + total.toFixed(2));
+  bodyLines.push('');
+  bodyLines.push('Receipts: ' + folderUrl);
+  bodyLines.push('');
+  bodyLines.push('Approve or reject each line item by updating the Status column in the GGI Expense Claim Log.');
+  MailApp.sendEmail(CONFIG.APPROVER_EMAILS.join(','), subject, bodyLines.join('\n'));
 }
