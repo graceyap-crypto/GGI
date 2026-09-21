@@ -14,8 +14,12 @@ var CONFIG = {
   CODE_PREFIXES: { Travel: 'TRIP', General: 'GEN' },
   // Approver(s) notified by email whenever a new claim is submitted.
   APPROVER_EMAILS: ['grace.yap@greengeninnovations.com'],
-  TRAVEL_SUBCATEGORIES: ['Transport', 'Food', 'Entertainment', 'Misc'],
+  TRAVEL_SUBCATEGORIES: ['Transport', 'Food', 'Entertainment', 'Misc', 'NPL'],
   GENERAL_SUBCATEGORIES: ['Training', 'Fixed Asset', 'Entertainment', 'Meal', 'Transport', 'Medical', 'Miscellaneous'],
+  // Subcategories exempt from the "at least one receipt" requirement
+  // below (e.g. NPL claims that have no receipt to attach by nature).
+  // Every other subcategory still requires a receipt.
+  RECEIPT_OPTIONAL_SUBCATEGORIES: ['NPL'],
   MAX_ITEMS: 30,
   MAX_FILES_PER_ITEM: 10,
   MAX_FILE_SIZE_BYTES: 15 * 1024 * 1024 // 15 MB per file

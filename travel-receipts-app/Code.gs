@@ -26,6 +26,7 @@ function doGet() {
   var template = HtmlService.createTemplateFromFile('Index');
   template.travelSubcategories = CONFIG.TRAVEL_SUBCATEGORIES;
   template.generalSubcategories = CONFIG.GENERAL_SUBCATEGORIES;
+  template.receiptOptionalSubcategories = CONFIG.RECEIPT_OPTIONAL_SUBCATEGORIES;
   template.maxFileSizeBytes = CONFIG.MAX_FILE_SIZE_BYTES;
   template.maxFileSizeMB = Math.round(CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024));
   return template.evaluate()
@@ -118,6 +119,8 @@ function finishItem(args) {
   var label = 'Item ' + (args.index + 1);
   if (!args.description || !args.description.trim()) throw new Error(label + ': description is required.');
   if (!args.amount || isNaN(args.amount) || Number(args.amount) <= 0) throw new Error(label + ': amount must be a positive number.');
+  var receiptOptional = CONFIG.RECEIPT_OPTIONAL_SUBCATEGORIES.indexOf(args.subcategory) !== -1;
+  if (!receiptOptional && (!args.receiptNames || args.receiptNames.length === 0)) throw new Error(label + ': at least one receipt file is required.');
 
   var row = appendLogRow_({
     claimCode: args.claimCode,

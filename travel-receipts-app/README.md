@@ -23,7 +23,7 @@ and incidental receipt at once instead of one form per receipt.
 Every submission picks one category up front:
 
 - **Travel** — the original flow: destination + trip date range, with
-  subcategories Transport, Food, Entertainment, or Misc.
+  subcategories Transport, Food, Entertainment, Misc, or NPL.
 - **General** — a single claim date instead of a trip, with
   subcategories Training, Fixed Asset, Entertainment, Meal, Transport,
   Medical, or Miscellaneous.
@@ -46,8 +46,9 @@ For each expense item (add as many as needed in one submission):
 - Category (subcategory list depends on Travel vs General, above)
 - Description
 - Amount in SGD
-- Receipt — one or more files (PDF/JPG/PNG), optional (attach whenever
-  available; approvers may query or reject items submitted without one)
+- Receipt — one or more files (PDF/JPG/PNG), required, **except for
+  the Travel &gt; NPL subcategory**, which needs none (see
+  `RECEIPT_OPTIONAL_SUBCATEGORIES` in `Config.gs`)
 - Credit card statement — one or more files, optional (attach when the
   expense was paid on a company card, as corroborating proof of charge)
 
@@ -123,6 +124,11 @@ Edit `TRAVEL_SUBCATEGORIES` or `GENERAL_SUBCATEGORIES` in `Config.gs`.
 If you add a brand-new subcategory name, also add a matching
 `.item[data-type="..."]` color rule in `Index.html`'s `<style>` block
 (optional — it just falls back to a neutral gray border without one).
+
+To make a subcategory receipt-optional (like `NPL`), add its exact
+name to `RECEIPT_OPTIONAL_SUBCATEGORIES` in `Config.gs`. Every
+subcategory not listed there still requires at least one receipt file
+per item, enforced both in the browser and on the server.
 
 ## Repository layout
 

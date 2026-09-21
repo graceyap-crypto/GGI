@@ -39,19 +39,19 @@ flowchart TD
    **Travel**, also destination and the trip's start/end dates; for
    **General**, a single claim date.
 4. **Adds one or more expense items** for the claim. Each item needs a
-   category (Transport/Food/Entertainment/Misc for Travel;
+   category (Transport/Food/Entertainment/Misc/NPL for Travel;
    Training/Fixed Asset/Entertainment/Meal/Transport/Medical/
-   Miscellaneous for General), a short description, and the amount in
-   SGD. A receipt file (PDF/JPG/PNG) is optional but strongly
-   encouraged — attach one whenever available. If the expense was paid
-   on a company credit card, the employee can also attach the credit
-   card statement/slip as corroborating proof — also optional, but
-   recommended for card charges.
+   Miscellaneous for General), a short description, the amount in SGD,
+   and at least one receipt file (PDF/JPG/PNG) — **except for NPL
+   items, which don't need one**. If the expense was paid on a company
+   credit card, the employee can also attach the credit card
+   statement/slip as corroborating proof — optional, but recommended
+   for card charges.
 5. **Submits.** Everything is validated client- and server-side before
    anything is written: required header fields for the chosen category,
-   a valid date range (Travel only), a positive amount, and file size
-   limits. Receipts and credit card statements are both optional, so an
-   item with no attachments at all can still be submitted.
+   a valid date range (Travel only), a positive amount, and at least
+   one receipt per item unless its subcategory is exempt (currently
+   only NPL), plus file size limits.
 6. **Claim code is generated**: sequential and unique, prefixed by
    category — e.g. `TRIP-2026-0001` for Travel or `GEN-2026-0001` for
    General. Travel and General numbering run independently, so neither
@@ -77,9 +77,9 @@ flowchart TD
     directly in the Log — no separate approval screen to build or
     maintain. Approval is per line item, so one questionable item
     doesn't have to hold up the rest of the claim. The `Receipt Files`
-    column is blank for any item submitted without one — approvers
-    should treat that as a flag to query the employee or reject the
-    item, at their discretion.
+    column will be blank for NPL items by design; for any other
+    subcategory it should always be populated, since the form blocks
+    submission without one.
 11. **Reimbursement**: Finance filters the Log for `Approved` rows,
     grouping by Claim Code where useful, to process payment / post to
     the general ledger.
@@ -95,11 +95,11 @@ flowchart TD
 - **Corroborating evidence** — the optional credit card statement
   attachment lets approvers cross-check the claimed amount against the
   actual card charge without needing a separate reconciliation process.
-- **Receipts are optional, not waived** — the form no longer blocks
-  submission without a receipt (e.g. for a lost paper receipt or a
-  petty cash item), but approvers are expected to apply the same
-  scrutiny to receiptless items as they would on paper: query the
-  employee or reject the item if the missing receipt isn't justified.
+- **NPL is the one receipt exemption** — every subcategory requires at
+  least one receipt file except NPL, which is exempt by design (no
+  receipt exists for that kind of claim). If more exemptions are
+  needed later, add the subcategory name to
+  `RECEIPT_OPTIONAL_SUBCATEGORIES` in `Config.gs`.
 - **No self-approval** — approvers should not approve their own claims;
   route those to a second approver manually.
 - **Retention** — keep the Log and Receipts folder for your
