@@ -36,6 +36,7 @@
       .row > div { flex: 1; }
       .hint { font-size: 12px; color: #6b7280; margin-top: 4px; }
       .files-list { font-size: 12px; color: #374151; margin-top: 6px; }
+      .files-list-error { color: #991b1b; font-weight: 600; }
       button {
         margin-top: 24px;
         width: 100%;
@@ -96,7 +97,8 @@
         <label>Purpose / description</label>
         <textarea id="description" placeholder="e.g. Taxi fare to client site on 12 Aug" required></textarea>
 
-        <label>Receipts (multiple files allowed &mdash; PDF, JPG, PNG)</label>
+        <label>Receipts</label>
+        <div class="hint">Accepted: PDF, JPG, PNG &middot; max <?= maxFileSizeMB ?> MB per file &middot; multiple files allowed</div>
         <input type="file" id="files" multiple accept=".pdf,.jpg,.jpeg,.png" required>
         <div class="files-list" id="filesList"></div>
 
@@ -109,14 +111,42 @@
 
     <script>
       var CURRENCY_MAP = <?!= JSON.stringify(currencyMap) ?>;
+      var MAX_FILE_SIZE_BYTES = <?= maxFileSizeBytes ?>;
+      var MAX_FILE_SIZE_MB = Math.round(MAX_FILE_SIZE_BYTES / (1024 * 1024));
+
+      function formatMB(bytes) {
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+      }
+
+      // Returns the files in fileList that exceed the size limit, so an
+      // oversized file can be rejected instantly in the browser rather
+      // than attempted: a file this large can take a long time to
+      // upload only to be killed by the network layer partway through,
+      // which shows up as a generic network error rather than a clear
+      // "file too large" message.
+      function oversizedFiles(fileList) {
+        return Array.prototype.filter.call(fileList, function (f) {
+          return f.size > MAX_FILE_SIZE_BYTES;
+        });
+      }
 
       document.getElementById('country').addEventListener('change', function (e) {
         document.getElementById('localCurrency').value = CURRENCY_MAP[e.target.value] || '';
       });
 
       document.getElementById('files').addEventListener('change', function (e) {
-        var names = Array.prototype.map.call(e.target.files, function (f) { return f.name; });
-        document.getElementById('filesList').textContent = names.length ? ('Attached: ' + names.join(', ')) : '';
+        var filesList = document.getElementById('filesList');
+        var oversized = oversizedFiles(e.target.files);
+        if (oversized.length) {
+          filesList.textContent = oversized.map(function (f) {
+            return f.name + ' (' + formatMB(f.size) + ')';
+          }).join(', ') + ' exceeds the ' + MAX_FILE_SIZE_MB + ' MB limit - please use a smaller file.';
+          filesList.classList.add('files-list-error');
+        } else {
+          var names = Array.prototype.map.call(e.target.files, function (f) { return f.name; });
+          filesList.textContent = names.length ? ('Attached: ' + names.join(', ')) : '';
+          filesList.classList.remove('files-list-error');
+        }
       });
 
       function fileToBase64(file) {
@@ -142,6 +172,13 @@
         var fileInput = document.getElementById('files');
         if (!fileInput.files.length) {
           errorEl.textContent = 'Please attach at least one receipt.';
+          errorEl.style.display = 'block';
+          return;
+        }
+        var oversized = oversizedFiles(fileInput.files);
+        if (oversized.length) {
+          errorEl.textContent = '"' + oversized[0].name + '" (' + formatMB(oversized[0].size) +
+            ') exceeds the ' + MAX_FILE_SIZE_MB + ' MB limit. Please use a smaller file.';
           errorEl.style.display = 'block';
           return;
         }

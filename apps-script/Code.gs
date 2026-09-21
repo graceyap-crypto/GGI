@@ -10,6 +10,8 @@ function doGet() {
   var template = HtmlService.createTemplateFromFile('Index');
   template.countries = Object.keys(COUNTRY_CURRENCY_MAP).sort();
   template.currencyMap = COUNTRY_CURRENCY_MAP;
+  template.maxFileSizeBytes = CONFIG.MAX_FILE_SIZE_BYTES;
+  template.maxFileSizeMB = Math.round(CONFIG.MAX_FILE_SIZE_BYTES / (1024 * 1024));
   return template.evaluate()
     .setTitle('GGI Team Expense Claim')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
