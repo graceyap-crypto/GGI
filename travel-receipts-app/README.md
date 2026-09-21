@@ -46,7 +46,8 @@ For each expense item (add as many as needed in one submission):
 - Category (subcategory list depends on Travel vs General, above)
 - Description
 - Amount in SGD
-- Receipt — one or more files (PDF/JPG/PNG), required
+- Receipt — one or more files (PDF/JPG/PNG), optional (attach whenever
+  available; approvers may query or reject items submitted without one)
 - Credit card statement — one or more files, optional (attach when the
   expense was paid on a company card, as corroborating proof of charge)
 

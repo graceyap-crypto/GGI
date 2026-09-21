@@ -118,7 +118,6 @@ function finishItem(args) {
   var label = 'Item ' + (args.index + 1);
   if (!args.description || !args.description.trim()) throw new Error(label + ': description is required.');
   if (!args.amount || isNaN(args.amount) || Number(args.amount) <= 0) throw new Error(label + ': amount must be a positive number.');
-  if (!args.receiptNames || args.receiptNames.length === 0) throw new Error(label + ': at least one receipt file is required.');
 
   var row = appendLogRow_({
     claimCode: args.claimCode,

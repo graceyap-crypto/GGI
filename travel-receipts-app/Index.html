@@ -320,9 +320,9 @@
         <label>Amount (SGD)</label>
         <input type="number" class="amount" min="0.01" step="0.01" required>
 
-        <label>Receipt</label>
+        <label>Receipt (optional)</label>
         <div class="field-hint">Accepted: PDF, JPG, PNG &middot; max <?= maxFileSizeMB ?> MB per file &middot; multiple files allowed</div>
-        <input type="file" class="receiptFiles" multiple accept=".pdf,.jpg,.jpeg,.png" required>
+        <input type="file" class="receiptFiles" multiple accept=".pdf,.jpg,.jpeg,.png">
         <div class="files-list receiptFilesList"></div>
 
         <label>Credit card statement (optional)</label>
@@ -520,11 +520,6 @@
         for (var i = 0; i < itemEls.length; i++) {
           var receiptFilesI = itemEls[i].querySelector('.receiptFiles').files;
           var ccFilesI = itemEls[i].querySelector('.ccFiles').files;
-          if (!receiptFilesI.length) {
-            document.getElementById('errorText').textContent = 'Expense ' + (i + 1) + ': please attach at least one receipt.';
-            errorEl.style.display = 'flex';
-            return;
-          }
           var oversized = oversizedFiles(receiptFilesI).concat(oversizedFiles(ccFilesI));
           if (oversized.length) {
             document.getElementById('errorText').textContent = 'Expense ' + (i + 1) + ': "' + oversized[0].name +
